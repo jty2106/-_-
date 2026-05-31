@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>송파구 토지이용 지도</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: "Pretendard", "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      color: #0f172a;
+      background: #f8fafc;
+    }
+    #app {
+      display: grid;
+      grid-template-columns: 320px 1fr 360px;
+      height: 100%;
+      gap: 1px;
+      background: #e2e8f0;
+    }
+    .panel {
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      padding: 18px;
+      gap: 14px;
+      overflow: hidden;
+    }
+    .panel h2 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .panel .section {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .panel label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #475569;
+    }
+    .panel button, .panel select {
+      width: 100%;
+      height: 38px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      padding: 0 12px;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .panel button:hover {
+      background: #e2e8f0;
+    }
+    .toggle-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .toggle-row input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+    }
+    #map { height: 100%; min-height: 0; }
+    .chart-card, .table-card {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 14px;
+      overflow: auto;
+    }
+    .tabs { display: flex; gap: 6px; }
+    .tabs button { flex: 1; border-radius: 10px; background: #f1f5f9; }
+    .tabs button.active { background: #0f766e; color: #ffffff; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f8fafc; color: #475569; text-align: left; }
+    .num { text-align: right; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="panel">
+      <h2>송파구 토지이용 지도</h2>
+      <div class="section">
+        <label>레이어 보기</label>
+        <div class="toggle-row"><span>블록 레이어</span><input id="chkParcels" type="checkbox" checked></div>
+        
+      </div>
+      
+        <div class="section">
+          <label>분석 탭</label>
+          <div class="tabs">
+            <button class="tab-btn active" data-tab="major">토지 이용 현황</button>
+          </div>
+        </div>
+      <div class="section">
+        <label>레이어 투명도</label>
+        <div class="toggle-row"><span>블록</span><input id="slideParcelsOpacity" type="range" min="20" max="100" value="80"></div>
+      </div>
+      <div class="section chart-card">
+        <h2>통계 개요</h2>
+        <canvas id="pieChart" style="width:100%;height:230px"></canvas>
+        <pre id="debugLog" style="height:120px;overflow:auto;margin-top:8px;background:#ffffff;padding:8px;border-radius:8px;border:1px solid #e2e8f0;font-size:12px;color:#0f172a"></pre>
+      </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="panel">
+      <h2>세부 통계</h2>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr><th>구분</th><th class="num">건수</th><th class="num">면적(㎡)</th><th class="num">비율</th></tr>
+          </thead>
+          <tbody id="statsTableBody"></tbody>
+        </table>
+      </div>
+      
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="./node_modules/flatgeobuf/dist/flatgeobuf-geojson.min.js"></script>
+  <script src="./node_modules/proj4/dist/proj4.js"></script>
+  <script>
+    const selectedDistrict = {
+      name: "송파구",
+      std: "11710",
+      sgis: "11240",
+      lat: 37.5035,
+      lon: 127.1171,
+      bbox: [127.070, 37.460, 127.170, 37.545]
+    };
+
+    proj4.defs('EPSG:5179', '+proj=tmerc +lat_0=38 +lon_0=127.5 +k=1 +x_0=1000000 +y_0=2000000 +ellps=GRS80 +units=m +no_defs');
+    proj4.defs('EPSG:5186', '+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs');
+    proj4.defs('EPSG:4326', '+proj=longlat +datum=WGS84 +no_defs');
+    proj4.defs('EPSG:3857', '+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +no_defs');
+
+    const paletteMajor = {
+      "전용주거": "#fef9c3",
+      "일반주거_저밀(1종)": "#fef08a",
+      "일반주거_중밀(2종)": "#fde047",
+      "일반주거_고밀(3종)": "#eab308",
+      "준주거": "#ca8a04",
+      "근린·유통상업": "#ef4444",
+      "중심·일반상업": "#f87171",
+      "일반·준공업": "#c084fc",
+      "보전·자연녹지": "#86efac",
+      "생산녹지": "#22c55e",
+      "도시지역_세부미지정": "#e5e7eb",
+      "미지정": "#9ca3af"
+    };
+
+
+
+    function getPolygonArea(feature) {
+      if (!feature || !feature.geometry || !feature.geometry.coordinates) return 0;
+      const coords = feature.geometry.coordinates;
+      function ringArea(ring) {
+        if (!Array.isArray(ring) || ring.length < 3) return 0;
+        const pts = ring.map(c => proj4('EPSG:4326', 'EPSG:3857', c));
+        let area = 0;
+        for (let i = 0; i < pts.length - 1; i++) {
+          area += pts[i][0] * pts[i + 1][1] - pts[i + 1][0] * pts[i][1];
+        }
+        return Math.abs(area) / 2;
+      }
+      if (feature.geometry.type === 'Polygon') return ringArea(coords[0]);
+      if (feature.geometry.type === 'MultiPolygon') return coords.reduce((sum, poly) => sum + ringArea(poly[0]), 0);
+      return 0;
+    }
+
+    
+
+    let activeTab = 'major';
+    let map;
+    let blockLayer;
+    let rawBlocks = [];
+    let chartInstance;
+
+    function getColorForFeature(feature) {
+      const props = feature.properties || {};
+      return paletteMajor[props.major_lu] || '#9ca3af';
+    }
+
+    function initMap() {
+      map = L.map('map', { zoomControl: false, attributionControl: false })
+        .setView([selectedDistrict.lat, selectedDistrict.lon], 13);
+      
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+      // Use OpenStreetMap tiles as a reliable fallback for local testing
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        minZoom: 6,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+    }
+
+    function bboxIntersects(feature, bbox) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      function scan(coords) {
+        if (typeof coords[0] === 'number') {
+          minX = Math.min(minX, coords[0]);
+          minY = Math.min(minY, coords[1]);
+          maxX = Math.max(maxX, coords[0]);
+          maxY = Math.max(maxY, coords[1]);
+        } else {
+          coords.forEach(scan);
+        }
+      }
+      scan(feature.geometry.coordinates);
+      return !(maxX < bbox.minX || minX > bbox.maxX || maxY < bbox.minY || minY > bbox.maxY);
+    }
+
+    function transformCoords(coords) {
+      if (typeof coords[0] === 'number') {
+        return proj4('EPSG:5179', 'EPSG:4326', coords);
+      }
+      return coords.map(transformCoords);
+    }
+
+    function reprojectFeature(feature) {
+      if (!feature.geometry || !feature.geometry.coordinates) return feature;
+      return {
+        ...feature,
+        geometry: {
+          ...feature.geometry,
+          coordinates: transformCoords(feature.geometry.coordinates)
+        }
+      };
+    }
+
+    async function loadLandUseData() {
+      const rect = { minX: selectedDistrict.bbox[0], minY: selectedDistrict.bbox[1], maxX: selectedDistrict.bbox[2], maxY: selectedDistrict.bbox[3] };
+      const baseUrl = window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
+      const blockUrl = baseUrl + 'data/derived/seoul_blocks.fgb';
+
+      rawBlocks = [];
+      try {
+        const resp = await fetch(blockUrl);
+        if (!resp.ok) throw new Error(`Failed to fetch blocks: ${resp.status}`);
+        const ab = await resp.arrayBuffer();
+        const bytes = new Uint8Array(ab);
+        const sizeKB = (bytes.byteLength / 1024).toFixed(1);
+        const dbg = document.getElementById('debugLog');
+        dbg.textContent = `Fetched blocks: ${resp.status} - ${sizeKB} KB\n`;
+        for await (const feature of flatgeobuf.deserialize(bytes)) {
+          const projected = reprojectFeature(feature);
+          if (bboxIntersects(projected, rect)) {
+            rawBlocks.push(projected);
+          }
+        }
+        dbg.textContent += `Parsed block features: ${rawBlocks.length}\n`;
+      } catch (e) {
+        console.error('Block fetch/deserialize error:', e);
+        const dbg = document.getElementById('debugLog');
+        dbg.textContent += `Block error: ${e.message}\n`;
+        rawBlocks = [];
+      }
+
+      renderLayers();
+      updateStatistics();
+      map.fitBounds([[selectedDistrict.bbox[1], selectedDistrict.bbox[0]], [selectedDistrict.bbox[3], selectedDistrict.bbox[2]]], { padding: [20, 20] });
+    }
+
+    
+
+    function renderLayers() {
+      if (blockLayer) map.removeLayer(blockLayer);
+
+      const blockOpacity = document.getElementById('slideParcelsOpacity').value / 100;
+      const blockWeight = 0.6;
+      blockLayer = L.geoJSON(rawBlocks, {
+        style: feature => ({
+          color: '#111827',
+          weight: blockWeight,
+          fillColor: getColorForFeature(feature),
+          fillOpacity: blockOpacity,
+          opacity: blockOpacity
+        }),
+        onEachFeature: (feature, layer) => {
+          const p = feature.properties || {};
+          layer.bindPopup(`` +
+            `<strong>블록 ID</strong>: ${p.block_id || ''}<br>` +
+            `<strong>주력 용도지역</strong>: ${p.major_lu || '미지정'}<br>` +
+            `<strong>주력 비중</strong>: ${(p.major_share || 0).toFixed(2)}<br>` +
+            `<strong>건축가능 비율</strong>: ${(p.buildable_share || 0).toFixed(2)}<br>` +
+            `<strong>도로 비중</strong>: ${(p.road_share || 0).toFixed(2)} ` +
+            `<strong>철도</strong>: ${(p.rail_share || 0).toFixed(2)}<br>` +
+            `<strong>대중교통</strong>: ${(p.transit_share || 0).toFixed(2)} ` +
+            `<strong>하천</strong>: ${(p.water_share || 0).toFixed(2)}`
+          );
+        }
+      });
+
+      if (document.getElementById('chkParcels').checked && activeTab !== 'building') blockLayer.addTo(map);
+
+      
+
+      
+    }
+
+    function updateStatistics() {
+      const stats = {};
+      let totalArea = 0;
+      const sourceFeatures = rawBlocks;
+
+      sourceFeatures.forEach(f => {
+        const props = f.properties || {};
+        const key = props.major_lu || '미지정';
+        const color = paletteMajor[key] || '#9ca3af';
+        const area = props.area_m2 || getPolygonArea(f);
+        stats[key] = stats[key] || { count: 0, area: 0, color };
+        stats[key].count += 1;
+        stats[key].area += area;
+        totalArea += area;
+      });
+
+      const rows = Object.entries(stats)
+        .sort((a, b) => b[1].area - a[1].area)
+        .map(([name, item]) => {
+          const ratio = totalArea ? (item.area / totalArea * 100).toFixed(1) : '0.0';
+          return `<tr><td>${name}</td><td class="num">${item.count.toLocaleString()}</td><td class="num">${Math.round(item.area).toLocaleString()}</td><td class="num">${ratio}%</td></tr>`;
+        });
+      document.getElementById('statsTableBody').innerHTML = rows.join('') + `<tr style="font-weight:700;border-top:1px solid #cbd5e1"><td>합계</td><td class="num">${Object.values(stats).reduce((sum, x) => sum + x.count, 0).toLocaleString()}</td><td class="num">${Math.round(totalArea).toLocaleString()}</td><td class="num">100.0%</td></tr>`;
+      renderPieChart(stats);
+    }
+
+    function renderPieChart(stats) {
+      const data = Object.entries(stats).slice(0, 8).map(([name, item]) => ({ name, value: item.area, color: item.color }));
+      const ctx = document.getElementById('pieChart').getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: data.map(d => d.name),
+          datasets: [{ data: data.map(d => d.value), backgroundColor: data.map(d => d.color), borderColor: '#f8fafc', borderWidth: 1 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+      });
+    }
+
+    function bindEvents() {
+      document.getElementById('chkParcels').addEventListener('change', () => {
+        if (blockLayer) {
+          if (document.getElementById('chkParcels').checked) blockLayer.addTo(map);
+          else map.removeLayer(blockLayer);
+        }
+      });
+      document.getElementById('slideParcelsOpacity').addEventListener('input', () => renderLayers());
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', (e) => {
+        const target = e.currentTarget;
+        const tab = target.dataset.tab || 'major';
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+        activeTab = tab;
+        renderLayers();
+        updateStatistics();
+      }));
+    }
+
+    
+
+    async function init() {
+      initMap();
+      bindEvents();
+      // load only block landuse data
+      await loadLandUseData();
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
