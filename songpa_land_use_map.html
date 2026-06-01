@@ -244,7 +244,7 @@
     async function loadLandUseData() {
       const rect = { minX: selectedDistrict.bbox[0], minY: selectedDistrict.bbox[1], maxX: selectedDistrict.bbox[2], maxY: selectedDistrict.bbox[3] };
       const baseUrl = window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
-      const blockUrl = baseUrl + 'data/derived/seoul_blocks.fgb';
+      const blockUrl = baseUrl + 'seoul_blocks.fgb';
 
       rawBlocks = [];
       try {
