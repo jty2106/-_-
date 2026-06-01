@@ -262,16 +262,15 @@ function transformCoords(coords) {
         const bytes = new Uint8Array(ab);
         const sizeKB = (bytes.byteLength / 1024).toFixed(1);
         const dbg = document.getElementById('debugLog');
-        dbg.textContent = `Fetched blocks: ${resp.status} - ${sizeKB} KB\n`;
-    for await (const feature of flatgeobuf.deserialize(
-    new URL(blockUrl),
-    rect
-)) {
-    const projected = reprojectFeature(feature);
-    rawBlocks.push(projected);
-}
+       dbg.textContent = `Fetched blocks: ${resp.status} - ${sizeKB} KB\n`;
 
-dbg.textContent += `Parsed block features: ${rawBlocks.length}\n`
+const fc = await flatgeobuf.geojson.deserialize(bytes);
+
+console.log(fc);
+
+rawBlocks = fc.features.map(f => reprojectFeature(f));
+
+dbg.textContent += `Parsed block features: ${rawBlocks.length}\n`;
       } catch (e) {
         console.error('Block fetch/deserialize error:', e);
         const dbg = document.getElementById('debugLog');
