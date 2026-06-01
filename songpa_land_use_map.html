@@ -255,7 +255,7 @@
         const sizeKB = (bytes.byteLength / 1024).toFixed(1);
         const dbg = document.getElementById('debugLog');
         dbg.textContent = `Fetched blocks: ${resp.status} - ${sizeKB} KB\n`;
-      for await (const feature of flatgeobuf.deserialize(blockUrl, rect)) {
+     for await (const feature of flatgeobuf.deserialize(blockUrl)) {
           const projected = reprojectFeature(feature);
           if (bboxIntersects(projected, rect)) {
             rawBlocks.push(projected);
