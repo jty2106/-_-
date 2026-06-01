@@ -223,12 +223,20 @@
       return !(maxX < bbox.minX || minX > bbox.maxX || maxY < bbox.minY || minY > bbox.maxY);
     }
 
-    function transformCoords(coords) {
-      if (typeof coords[0] === 'number') {
-        return proj4('EPSG:5179', 'EPSG:4326', coords);
-      }
-      return coords.map(transformCoords);
+function transformCoords(coords) {
+  if (typeof coords[0] === 'number') {
+    const x = coords[0];
+    const y = coords[1];
+
+    if (Math.abs(x) <= 180 && Math.abs(y) <= 90) {
+      return coords;
     }
+
+    return proj4('EPSG:5179', 'EPSG:4326', coords);
+  }
+
+  return coords.map(transformCoords);
+}
 
     function reprojectFeature(feature) {
       if (!feature.geometry || !feature.geometry.coordinates) return feature;
