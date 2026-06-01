@@ -259,7 +259,6 @@
   const projected = reprojectFeature(feature);
   rawBlocks.push(projected);
 }
-        }
         dbg.textContent += `Parsed block features: ${rawBlocks.length}\n`;
       } catch (e) {
         console.error('Block fetch/deserialize error:', e);
