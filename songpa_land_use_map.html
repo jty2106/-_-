@@ -264,7 +264,7 @@ function transformCoords(coords) {
         const dbg = document.getElementById('debugLog');
        dbg.textContent = `Fetched blocks: ${resp.status} - ${sizeKB} KB\n`;
 
-const fc = await flatgeobuf.geojson.deserialize(bytes);
+const fc = await flatgeobuf.deserialize(bytes);
 
 console.log(fc);
 
